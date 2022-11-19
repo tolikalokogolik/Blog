@@ -43,8 +43,10 @@ hexagon = function(x, y, area){
   x_coord=x+c(0, sqrt(3)/2*r, sqrt(3)/2*r, 0,-sqrt(3)/2*r, -sqrt(3)/2*r) 
   y_coord=y+c(r, r/2, -r/2, -r, -r/2, r/2)
   
-  return(data.frame("x" = x_coord,
-                    "y" = y_coord))
+  # return(data.frame("x" = x_coord,
+  #                   "y" = y_coord))
+  
+  return(list(x_coord, y_coord))
 }
 
 #### preworking data ----
@@ -82,11 +84,15 @@ plot_player = function(data, player){
                      as.integer(chosen_player[i,'y']),
                      as.integer(chosen_player[i,'new_size']))
       
-      for (j in 1:6){
-        new_data[(i-1)*6+j,'X6'] <- hex[j, "x"]
-        new_data[(i-1)*6+j,'Y6'] <- hex[j, "y"]
-        new_data[(i-1)*6+j,'indx'] <- i
-      }
+      
+      new_data[(1 + (i-1)*6):(6 + (i-1)*6),'X6' ] <-hex[[1]]
+      new_data[(1 + (i-1)*6):(6 + (i-1)*6),'Y6' ] <-hex[[2]]
+      new_data[(1 + (i-1)*6):(6 + (i-1)*6),'indx' ] <- i
+      # for (j in 1:6){
+      #   new_data[(i-1)*6+j,'X6'] <- hex[j, "x"]
+      #   new_data[(i-1)*6+j,'Y6'] <- hex[j, "y"]
+      #   new_data[(i-1)*6+j,'indx'] <- i
+      # }
     }
     
     plot <-ggplot(new_data, aes(x=X6, y=Y6)) + 
