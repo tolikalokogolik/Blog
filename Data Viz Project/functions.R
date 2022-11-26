@@ -1,4 +1,4 @@
-##### SETUP -----
+#### LIBRARIES ----
 library(gtrendsR)
 library(readr)
 library(kaggler)
@@ -15,9 +15,11 @@ library(tidyverse)
 library(tidygraph)
 library(ggraph)
 library(rlang)
+library(stringr)
+library(rjson)
+library(netstat)
 
-
-setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
+#### GRAPHS SETUP ----
 
 GRAY1 = "#231e20"
 GRAY2 = "#414040"
@@ -66,23 +68,37 @@ theme_swd <- function() {
       strip.text = element_text(color = GRAY7)) 
 }
 
+#### DATA INGESTION ----
 
-##### DATA INGESTION -----
-
-get_google_data <- function(job_title, country){
+get_google_data <- function(job_title, country, time){
   #load data about google trends
-  df_google <- gtrends(c("data science"),geo=c("EE"))
+  df_google <- gtrends(c(job_title),geo = c(country), time = time)
   df_google <- list(df_google[["interest_over_time"]], df_google[["related_topics"]])
   
   return(df_google)
 }
 
+get_salaries_data <- function(from_kaggle = F){
+  
+  if (from_kaggle == T){
+    kgl_auth(creds_file = 'C:/Users/natali00/Downloads/kaggle.json')
+    response <- kgl_datasets_download_all(owner_dataset = "bryanb/aiml-salaries")
+    
+    download.file(response[["url"]], "data/temp.zip", mode="wb")
+    unzip_result <- unzip("data/temp.zip", exdir = "data/", overwrite = TRUE)
+  }
+  
+  df_salaries <- read_csv("data/salaries.csv")
+  
+  return(df_salaries)
+}
+
 get_salaries_subdata <- function(df_salaries, 
-                              country, 
-                              employment_type_,
-                              company_size,
-                              work_year_,
-                              level){
+                                 country, 
+                                 employment_type_,
+                                 company_size_,
+                                 work_year_,
+                                 level){
   sdf_salaries <- df_salaries %>% 
     filter(employee_residence == country,
            employment_type %in% employment_type_,
@@ -105,54 +121,6 @@ get_salaries_subdata <- function(df_salaries,
   return(list(sdf_salaries, sdf_salaries2, sdf_salaries3))
 }
 
-get_salaries_data <- function(from_kaggle = F){
-  
-  if (from_kaggle == T){
-    kgl_auth(creds_file = 'C:/Users/natali00/Downloads/kaggle.json')
-    response <- kgl_datasets_download_all(owner_dataset = "bryanb/aiml-salaries")
-
-    download.file(response[["url"]], "data/temp.zip", mode="wb")
-    unzip_result <- unzip("data/temp.zip", exdir = "data/", overwrite = TRUE)
-  }
-  
-  df_salaries <- read_csv("data/salaries.csv")
-  
-  return(df_salaries)
-}
-
-df_google <- gtrends(c("data science"),geo=c("EE"))
-
-
-df_salaries <- read_csv("data/salaries.csv")
-
-url <- "https://www.linkedin.com/jobs/search/?keywords=data%20scientist&location=Estonia"
-# 
-# ((paragraphs <- read_html(url) %>% html_nodes('ul'))[[7]] %>% html_nodes('a')) %>% html_text()
-# 
-# url2 <- "https://www.linkedin.com/jobs/search/?keywords=data%20scientist&location=Estonia"
-# 
-# ((paragraphs <- read_html(url2) %>% html_nodes('ul'))[[7]] %>% html_nodes('a')) %>% html_text()
-# (paragraphs <- read_html(url2) %>% html_nodes('span')) 
-# data[[66]] %>% html_elements("span")
-# data <- (paragraphs <- read_html(url2) %>% html_nodes('li')) 
-# for (i in 1:length(data)){
-#   #print(data[[i]]%>% html_attrs())
-#   # if (grepl("40",data[[i]]%>% html_, fixed = TRUE)){
-#   #   print(i)
-#   # }
-#   attrs <- data[[i]]%>% html_attrs()
-#   if (any(grepl("aria-current", attrs)) & any(grepl("aria-label", attrs)) & any(grepl("type", attrs))){
-#     print(i)
-#   }
-# }  
-# 
-# read_html(url2) %>% html_elements(xpath="/html/body/div[6]") %>% html_text()
-# 
-# url3 = "https://www.linkedin.com/jobs/search/?keywords=data%20scientist&location=Estonia&position=1&pageNum=2"
-# length((read_html(url3) %>%  html_nodes('ul'))[[7]] %>% html_nodes('a') %>% html_text)
-# (read_html(url3) %>%  html_nodes('h1')) %>% html_text()
-
-###get all possible data before
 
 get_jobs_from_linkedin <- function(load = T, 
                                    df_salaries){
@@ -220,51 +188,18 @@ get_jobs_from_linkedin <- function(load = T,
   return(to_return)
 }
 
-get_jobs_from_linkedin(F, df_salaries)
-fromJSON(file = "data/google-trends-locations.json")["EE"]
-
-
-
-
-remDr$navigate(url)
-
-bodyEl <- remDr$findElement("css", "body")
-for (j in 1:30) {
-  bodyEl$sendKeysToElement(list(key = "end"))
-  Sys.sleep(5)
+country2country_name <- function(country){
+  country_name <- fromJSON(file = "data/google-trends-locations.json")[[country]]
+  
+  return(country_name)
 }
 
-lol <- remDr$findElements(using = "xpath", "/html/body/div[3]/div/main/section[2]/ul")
-#lol$findChildElement("h3")
-df_linkedin <- tolower(unlist(lapply(lol, function(x) {x$getElementText()})))
 
-library(stringr)
 
-df_linkedin <- df_linkedin %>% str_split("\n") %>% data.frame()
 
-colnames(df_linkedin) <- "output"
 
-df_linkedin <- df_linkedin %>% 
-  filter(grepl("data scien", output))
 
-##### GRAPHS -----
-
-country = "US"
-employment_type_ = c("FT", "CT", "PT", "FL")
-work_year_ = "all"
-company_size_ = c("S", "L", "M")
-
-sdf_salaries <- df_salaries %>% 
-  filter(employee_residence == country,
-         employment_type %in% employment_type_,
-         company_size %in% company_size_)
-
-if (work_year_ != "all"){
-  sdf_salaries2 <- sdf_salaries %>% 
-    filter(work_year == work_year_)
-} else {
-  sdf_salaries2 <- sdf_salaries
-}
+#### GRAPHS FUNCTIONS ----
 
 plot_exp_level_dist <- function(sdf_salaries2){
   plot <- sdf_salaries2 %>% 
@@ -281,11 +216,9 @@ plot_exp_level_dist <- function(sdf_salaries2){
     xlab("Experience level") +
     ggtitle("Distribution of experience levels")
     
-  
-  return(plot)
+    
+    return(plot)
 }
-
-plot_exp_level_dist(sdf_salaries[[2]])
 
 plot_salary_dist <- function(sdf_salaries, sdf_salaries2){
   salary_range <- c(min(sdf_salaries$salary_in_usd),
@@ -311,69 +244,20 @@ plot_salary_dist <- function(sdf_salaries, sdf_salaries2){
   
 }
 
-plot_salary_dist(sdf_salaries, sdf_salaries2) 
-
-
-
-
-
-
-
-level = "all"
-
-if (level != "all"){
-  sdf_salaries3 <- sdf_salaries %>% 
-    filter(experience_level == level)
-} else {
-  sdf_salaries3 <- sdf_salaries
-}
-
-sdf_salaries3 %>% 
-  group_by(work_year) %>% 
-  summarise(mean_salary = mean(salary_in_usd),
-            n = n()) %>% 
-  gather(key = key, value = value, -work_year) %>% 
-  spread(work_year, value) %>% 
-  mutate(change20.21 = case_when(key == "mean_salary" ~ -100 + !!sym('2021')/!!sym('2020')*100,
-                                 T ~ !!sym('2021') - !!sym('2020')) ,
-         change21.22 = case_when(key == "mean_salary" ~ -100 + !!sym('2022')/!!sym('2021')*100,
-                                 T ~ !!sym('2022') - !!sym('2021'))) 
-
-
-
-
-
-
 plot_wordcloud <- function(sdf_salaries2){
   words <- sdf_salaries2 %>% 
     group_by(job_title) %>% 
     summarise(n = n())
   
   plot <- wordcloud(words = words$job_title, 
-            freq = words$n, 
-            colors=brewer.pal(9,"Blues")[5:length(brewer.pal(9,"Blues"))],
-            random.order=FALSE,
-            rot.per=0.35,
-            min.freq = 1)
+                    freq = words$n, 
+                    colors=brewer.pal(9,"Blues")[5:length(brewer.pal(9,"Blues"))],
+                    random.order=FALSE,
+                    rot.per=0.35,
+                    min.freq = 1)
   
   return(plot)
 }
-
-
-plot_wordcloud(sdf_salaries2)
-
-
-
-
-job_title = unique(sdf_salaries$job_title)[10]
-possibleTime = c("now 1-H", "now 4-H", "now 1-d",
-                 "now 7-d", "today 1-m", "today 3-m",
-                 "today 12-m", "today+5-y", "all")
-time_ = possibleTime[9]
-
-df_google <- gtrends(job_title,
-                     geo = country,
-                     time = time_)
 
 plot_search_time <- function(data){
   plot <- data  %>% 
@@ -387,9 +271,6 @@ plot_search_time <- function(data){
   
   return(plot)
 }
-
-
-plot_search_time(df_google[[1]])
 
 plot_search_related_topics <- function(data, job_title){
   node <- data.frame(topics = c(unique((data %>% 
@@ -419,21 +300,5 @@ plot_search_related_topics <- function(data, job_title){
   
   return(plot)
 }
-
-
-plot_search_related_topics(df_google[["related_topics"]], job_title)
-
-
-
-df_salaries <- get_salaries_data()
-sdf_salaries <- get_salaries_subdata(df_salaries,
-                                     "US",
-                                     c("FT", "PT"),
-                                     c("S", "M", "L"),
-                                     "all",
-                                     "all")
-
-plot_exp_level_dist(sdf_salaries[[2]])
-
 
 
