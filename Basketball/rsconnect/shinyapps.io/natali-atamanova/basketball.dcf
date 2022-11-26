@@ -1,0 +1,14 @@
+name: basketball
+title:
+username:
+account: natali-atamanova
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 7670006
+bundleId: 6531897
+url: https://natali-atamanova.shinyapps.io/basketball/
+when: 1668844423.08826
+lastSyncTime: 1668844423.08828
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .gitattributes|one_player_plot.R
