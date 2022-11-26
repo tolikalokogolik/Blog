@@ -14,6 +14,7 @@ library(RColorBrewer)
 library(tidyverse)
 library(tidygraph)
 library(ggraph)
+library(rlang)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
 
@@ -67,13 +68,60 @@ theme_swd <- function() {
 
 ##### DATA INGESTION -----
 
+get_google_data <- function(job_title, country){
+  #load data about google trends
+  df_google <- gtrends(c("data science"),geo=c("EE"))
+  df_google <- list(df_google[["interest_over_time"]], df_google[["related_topics"]])
+  
+  return(df_google)
+}
+
+get_salaries_subdata <- function(df_salaries, 
+                              country, 
+                              employment_type_,
+                              company_size,
+                              work_year_,
+                              level){
+  sdf_salaries <- df_salaries %>% 
+    filter(employee_residence == country,
+           employment_type %in% employment_type_,
+           company_size %in% company_size_)
+  
+  if (work_year_ != "all"){
+    sdf_salaries2 <- sdf_salaries %>% 
+      filter(work_year == work_year_)
+  } else {
+    sdf_salaries2 <- sdf_salaries
+  }
+  
+  if (level != "all"){
+    sdf_salaries3 <- sdf_salaries %>% 
+      filter(experience_level == level)
+  } else {
+    sdf_salaries3 <- sdf_salaries
+  }
+  
+  return(list(sdf_salaries, sdf_salaries2, sdf_salaries3))
+}
+
+get_salaries_data <- function(from_kaggle = F){
+  
+  if (from_kaggle == T){
+    kgl_auth(creds_file = 'C:/Users/natali00/Downloads/kaggle.json')
+    response <- kgl_datasets_download_all(owner_dataset = "bryanb/aiml-salaries")
+
+    download.file(response[["url"]], "data/temp.zip", mode="wb")
+    unzip_result <- unzip("data/temp.zip", exdir = "data/", overwrite = TRUE)
+  }
+  
+  df_salaries <- read_csv("data/salaries.csv")
+  
+  return(df_salaries)
+}
+
 df_google <- gtrends(c("data science"),geo=c("EE"))
 
-# kgl_auth(creds_file = 'C:/Users/natali00/Downloads/kaggle.json')
-# response <- kgl_datasets_download_all(owner_dataset = "bryanb/aiml-salaries")
-# 
-# download.file(response[["url"]], "data/temp.zip", mode="wb")
-# unzip_result <- unzip("data/temp.zip", exdir = "data/", overwrite = TRUE)
+
 df_salaries <- read_csv("data/salaries.csv")
 
 url <- "https://www.linkedin.com/jobs/search/?keywords=data%20scientist&location=Estonia"
@@ -206,7 +254,7 @@ plot_salary_dist(sdf_salaries, sdf_salaries2)
 
 
 
-library(rlang)
+
 
 level = "all"
 
