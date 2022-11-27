@@ -1,6 +1,9 @@
+setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
 source("functions.R")
 
 df_salaries <- get_salaries_data()
+df_linkedin <- get_jobs_from_linkedin(load = T,
+                             df_salaries)
 
 
 ui = dashboardPage(
@@ -55,7 +58,14 @@ ui = dashboardPage(
             h4("Select job title"), 
             choices = unique(df_salaries$job_title), 
             selected = unique(df_salaries$job_title)[1]
-          )
+          ),
+          valueBox(
+            width=12,
+            value = textOutput("found_jobs"),
+            subtitle = "Jobs found on LinkedIn"
+          ),
+          p(paste0("Data collected: ", file.info("data/linkedin_data.csv")$mtime))
+          
         )
       ),
       
@@ -195,6 +205,20 @@ server = function(input, output){
     
     plot_search_related_topics(df_google[[2]],
                                input$job_title)
+  })
+  
+  output$found_jobs = renderText({
+    data <- df_linkedin %>% 
+      filter(job_name == input$job_title,
+             country == input$country)
+    
+    if (nrow(data) > 0){
+      to_return = as.character(data$count)
+    } else {
+      to_return = "0"
+    }
+    
+    to_return
   })
 }
 

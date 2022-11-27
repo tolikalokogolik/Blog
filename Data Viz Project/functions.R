@@ -18,6 +18,11 @@ library(rlang)
 library(stringr)
 library(rjson)
 library(netstat)
+library(rvest)
+library(ggrepel)
+library(shinydashboard)
+library(plotly)
+library(shiny)
 
 #### GRAPHS SETUP ----
 
@@ -146,6 +151,7 @@ get_jobs_from_linkedin <- function(load = T,
     
     for (i in 1:length(jobs)){
       for (j in 1:length(countries)){
+        print(paste0(jobs[i], " ", countries[j]))
         
         job = str_replace(tolower(jobs[i]), " ", "%20")
         country_name = str_replace(country2country_name(countries[j]), " ", "%20")
@@ -154,34 +160,61 @@ get_jobs_from_linkedin <- function(load = T,
         remDr$navigate(url)
         
         bodyEl <- remDr$findElement("css", "body")
-        for (k in 1:30) {
-          bodyEl$sendKeysToElement(list(key = "end"))
-          Sys.sleep(2)
-        }
         
         lol <- remDr$findElements(using = "xpath", "/html/body/div[3]/div/main/section[2]/ul")
-        #lol$findChildElement("h3")
-        df_linkedin <- tolower(unlist(lapply(lol, function(x) {x$getElementText()})))
+        df_linkedin <- unlist(lapply(lol, function(x) {x$getElementText()}))
+        if (length(df_linkedin)>0){
+          elementts_count_old = 0
+          while (T){
+            html <- read_html(remDr$getPageSource()[[1]])
+            elements_count_new = length(((html %>% html_nodes('ul'))[[7]] %>% html_nodes('a')) %>% html_text())
+            if (elements_count_new == elementts_count_old){
+              break
+            }
+            bodyEl$sendKeysToElement(list(key = "end"))
+            Sys.sleep(1.5)
+            elementts_count_old = elements_count_new
+          }
+          # for (k in 1:30) {
+          #   bodyEl$sendKeysToElement(list(key = "end"))
+          #   Sys.sleep(2)
+          # }
+          
+          lol <- remDr$findElements(using = "xpath", "/html/body/div[3]/div/main/section[2]/ul")
+          #lol$findChildElement("h3")
+          df_linkedin <- tolower(unlist(lapply(lol, function(x) {x$getElementText()})))
+          
+          df_linkedin <- df_linkedin %>% str_split("\n") %>% data.frame()
+          
+          colnames(df_linkedin) <- "output"
+          
+          
+          
+          df_linkedin <- df_linkedin %>% 
+            filter(grepl(tolower(jobs[i]), output))
+          
+          if (nrow(df_linkedin)>0){
+            df_linkedin <- df_linkedin%>% 
+              mutate(job_name = jobs[i]) %>% 
+              group_by(job_name) %>% 
+              summarise(count = n()) %>% 
+              mutate(country = countries[j])
+            
+            to_return <- bind_rows(to_return,
+                                   df_linkedin)
+            
+          }
+        }
         
-        df_linkedin <- df_linkedin %>% str_split("\n") %>% data.frame()
         
-        colnames(df_linkedin) <- "output"
         
-        df_linkedin <- df_linkedin %>% 
-          filter(grepl(tolower(jobs[i]), output)) %>% 
-          mutate(job_name = jobs[i],
-                 country = countries[j]) %>% 
-          group_by(job_name,
-                   country) %>% 
-          summarise(count = n())
         
-        to_return <- bind_rows(to_return,
-                               df_linkedin)
+        
       }
       
     }
     
-    write.csv("data/linkedin_data.csv", to_return)
+    write.csv(to_return, "data/linkedin_data.csv")
   } else {
     to_return = read.csv("data/linkedin_data.csv")
   }
