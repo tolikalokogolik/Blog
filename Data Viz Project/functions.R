@@ -59,8 +59,8 @@ theme_swd <- function() {
       panel.grid.minor = element_blank(),
       axis.line = element_line(size = .13, color = GRAY8),
       axis.text = element_text(color = GRAY7),
-      axis.ticks.x = element_line(size = 0.5, color = GRAY8),
-      axis.ticks.y = element_line(size = 0.5, color = GRAY8),
+      axis.ticks.x = element_line(size = 1, color = GRAY8),
+      axis.ticks.y = element_line(size = 1, color = GRAY8),
       axis.title = element_text(color = GRAY3),
       axis.title.y = element_text(hjust = 1, margin = margin(0, 6, 0, 15, "pt")),
       axis.title.x = element_text(hjust = 0, margin = margin(6, 0, 15, 0, "pt")),
@@ -229,7 +229,22 @@ country2country_name <- function(country){
 
 
 
-
+get_statistics_table <- function(sdf_salaries3){
+  table <- sdf_salaries3 %>% 
+    group_by(work_year) %>% 
+    summarise(mean_salary = mean(salary_in_usd),
+              n = n()) %>% 
+    mutate(work_year = paste0("y", as.character(work_year))) %>% 
+    gather(key = key, value = value, -work_year) %>% 
+    spread(work_year, value, fill = 0) 
+    # mutate(change20.21 = case_when(key == "mean_salary" ~ -100 + !!sym('2021')/!!sym('2020')*100,
+    #                                T ~ !!sym('2021') - !!sym('2020')) ,
+    #        change21.22 = case_when(key == "mean_salary" ~ -100 + !!sym('2022')/!!sym('2021')*100,
+    #                                T ~ !!sym('2022') - !!sym('2021'))) 
+    
+  
+  return(table)
+}
 
 
 #### GRAPHS FUNCTIONS ----

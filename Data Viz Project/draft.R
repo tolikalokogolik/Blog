@@ -345,7 +345,7 @@ plot_salary_dist <- function(sdf_salaries, sdf_salaries2){
   
 }
 
-plot_salary_dist(sdf_salaries, sdf_salaries2) 
+plot_salary_dist(sdf_salaries[[1]], sdf_salaries[[2]]) 
 
 
 
@@ -362,7 +362,7 @@ if (level != "all"){
   sdf_salaries3 <- sdf_salaries
 }
 
-sdf_salaries3 %>% 
+sdf_salaries[[3]] %>% 
   group_by(work_year) %>% 
   summarise(mean_salary = mean(salary_in_usd),
             n = n()) %>% 
@@ -374,7 +374,20 @@ sdf_salaries3 %>%
                                  T ~ !!sym('2022') - !!sym('2021'))) 
 
 
-
+get_statistics_table <- function(sdf_salaries3){
+  table <- sdf_salaries3 %>% 
+    group_by(work_year) %>% 
+    summarise(mean_salary = mean(salary_in_usd),
+              n = n()) %>% 
+    gather(key = key, value = value, -work_year) %>% 
+    spread(work_year, value) %>% 
+    mutate(change20.21 = case_when(key == "mean_salary" ~ -100 + !!sym('2021')/!!sym('2020')*100,
+                                   T ~ !!sym('2021') - !!sym('2020')) ,
+           change21.22 = case_when(key == "mean_salary" ~ -100 + !!sym('2022')/!!sym('2021')*100,
+                                   T ~ !!sym('2022') - !!sym('2021'))) 
+  
+  return(table)
+}
 
 
 

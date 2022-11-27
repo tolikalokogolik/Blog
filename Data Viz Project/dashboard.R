@@ -62,7 +62,8 @@ ui = dashboardPage(
           valueBox(
             width=12,
             value = textOutput("found_jobs"),
-            subtitle = "Jobs found on LinkedIn"
+            subtitle = "Jobs found on LinkedIn",
+            color = "light-blue"
           ),
           p(paste0("Data collected: ", file.info("data/linkedin_data.csv")$mtime))
           
@@ -118,37 +119,98 @@ ui = dashboardPage(
     ),
     fluidRow(
       box(
-        width = 6,
+        width = 5,
         h3("Job titles workcloud in this country"),
         plotOutput("plot_wordcloud")
       ),
-      column(
-        width = 6,
-        box(
-          selectInput(
-            "level", 
-            h4("Select experience level"), 
-            choices = list(
-              "Entry-level / Junior" = "EN", 
-              " Mid-level / Intermediate" = "MI",
-              "Senior-level / Expert" = "SE",
-              "Executive-level / Director" = "EX"
-            ), 
-            selected = "all"
-          ),
-          tabsetPanel(
-            tabPanel(
-              "Tab 1",
-              p("Here is Tab 1 information")
+      box(
+        width = 7,
+        selectInput(
+          "level", 
+          h4("Select experience level"), 
+          choices = list(
+            "All" = "all",
+            "Entry-level / Junior" = "EN", 
+            "Mid-level / Intermediate" = "MI",
+            "Senior-level / Expert" = "SE",
+            "Executive-level / Director" = "EX"
+          ), 
+          selected = "all"
+        ),
+        tabsetPanel(
+          tabPanel(
+            "Mean salary",
+            valueBox(
+              value = textOutput("salary_mean_2020"),
+              subtitle = "2020",
+              color = "blue"
             ),
-            tabPanel(
-              "Tab 2",
-              p("Here is Tab 2 information")
+            valueBox(
+              value = textOutput("salary_mean_2021"),
+              subtitle = "2021",
+              color = "blue"
+            ),
+            valueBox(
+              value = textOutput("salary_mean_2022"),
+              subtitle = "2022",
+              color = "blue"
+            )
+          ),
+          tabPanel(
+            "Salary change",
+            valueBox(
+              width = 6,
+              value = textOutput("salary_change_2020.2021"),
+              subtitle = "2020 -> 2021",
+              color = "blue"
+            ),
+            valueBox(
+              width = 6,
+              value = textOutput("salary_change_2021.2022"),
+              subtitle = "2021 -> 2022",
+              color = "blue"
+            )
+          )
+          
+        ),
+        tabsetPanel(
+          tabPanel(
+            "Workers count",
+            valueBox(
+              value = textOutput("workers_count_2020"),
+              subtitle = "2020",
+              color = "blue"
+            ),
+            valueBox(
+              value = textOutput("workers_count_2021"),
+              subtitle = "2021",
+              color = "blue"
+            ),
+            valueBox(
+              value = textOutput("workers_count_2022"),
+              subtitle = "2022",
+              color = "blue"
+            )
+          ),
+          tabPanel(
+            "Workers count change",
+            valueBox(
+              width = 6,
+              value = textOutput("workers_change_2020.2021"),
+              subtitle = "2020 -> 2021",
+              color = "blue"
+            ),
+            valueBox(
+              width = 6,
+              value = textOutput("workers_change_2021.2022"),
+              subtitle = "2021 -> 2022",
+              color = "blue"
             )
           )
         )
-        
       )
+        
+      
       
     )
     
@@ -162,7 +224,7 @@ server = function(input, output){
                                         input$employment_type_,
                                         input$company_size_,
                                         input$work_year_,
-                                        input$level)
+                                        "all")
     
     plot_exp_level_dist(sdf_salaries[[2]])
   })
@@ -173,7 +235,7 @@ server = function(input, output){
                                         input$employment_type_,
                                         input$company_size_,
                                         input$work_year_,
-                                        input$level)
+                                        "all")
     
     plot_salary_dist(sdf_salaries[[1]],
                      sdf_salaries[[2]])
@@ -185,7 +247,7 @@ server = function(input, output){
                                         input$employment_type_,
                                         input$company_size_,
                                         input$work_year_,
-                                        input$level)
+                                        "all")
     
     plot_wordcloud(sdf_salaries[[2]])
   })
@@ -216,6 +278,180 @@ server = function(input, output){
       to_return = as.character(data$count)
     } else {
       to_return = "0"
+    }
+    
+    to_return
+  })
+  
+  output$salary_mean_2020 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[1,2]
+    
+    as.character(round(number,-2))
+  })
+  
+  output$salary_mean_2021 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[1,3]
+    
+    as.character(round(number,-2))
+  })
+  
+  output$salary_mean_2022 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[1,4]
+    
+    as.character(round(number,-2))
+  })
+  
+  output$salary_change_2020.2021 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = round((statistics_table[1,3]/statistics_table[1,2])*100 -100,1)
+    
+    if (number >= 0){
+      to_return = paste0("+", as.character(number), "%")
+    } else {
+      to_return = paste0(as.character(number), "%")
+    }
+    
+    to_return
+  })
+  
+  output$salary_change_2021.2022 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = round((statistics_table[1,4]/statistics_table[1,3])*100 - 100,1)
+    
+    if (number >= 0){
+      to_return = paste0("+", as.character(number), "%")
+    } else {
+      to_return = paste0(as.character(number), "%")
+    }
+    
+    to_return
+  })
+  
+  output$workers_count_2020 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[2,2]
+    
+    as.character(number)
+  })
+  
+  output$workers_count_2021 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[2,3]
+    
+    as.character(number)
+  })
+  
+  output$workers_count_2022 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[2,4]
+    
+    as.character(number)
+  })
+  
+  output$workers_change_2020.2021 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[2,3] - statistics_table[2,2]
+    
+    if (number >= 0){
+      to_return = paste0("+", as.character(number))
+    } else {
+      to_return = paste0(as.character(number))
+    }
+    
+    to_return
+  })
+  
+  output$workers_change_2021.2022 = renderText({
+    sdf_salaries = get_salaries_subdata(df_salaries,
+                                        input$country,
+                                        input$employment_type_,
+                                        input$company_size_,
+                                        input$work_year_,
+                                        input$level)
+    
+    statistics_table <- get_statistics_table(sdf_salaries[[3]])
+    
+    number = statistics_table[2,4] - statistics_table[2,3]
+    
+    if (number >= 0){
+      to_return = paste0("+", as.character(number))
+    } else {
+      to_return = paste0(as.character(number))
     }
     
     to_return
