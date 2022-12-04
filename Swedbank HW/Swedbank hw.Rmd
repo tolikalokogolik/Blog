@@ -1,0 +1,854 @@
+---
+title: "Swedbank homework"
+author: "Natali Atamanova"
+date: "2022-12-03"
+output: html_document
+---
+
+## SETUP
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="#BlockName"> Show/Hide </button>  
+<div id="BlockName" class="collapse">  
+
+
+```{r setup, message=FALSE, warning=FALSE}
+library(bigrquery)
+library(DBI)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = "huhl-course",
+  dataset = "SWEDBANK",
+  billing = "huhl-course"
+)
+dbListTables(con)
+
+# Colors
+GRAY1 = "#231e20"
+GRAY2 = "#414040"
+GRAY3 = "#555655"
+GRAY4 = "#646369"
+GRAY5 = "#76787B"
+GRAY6 = "#828282"
+GRAY7 = "#929497"
+GRAY8 = "#a6a6a5"
+GRAY9 = "#bfbebe"
+RED1 = "#c3514e"
+RED2 = "#e6bab7"
+RED3 = "#800d00"
+GREEN1 = "#0c8040"
+GREEN2 = "#9abb59"
+GREEN3 = "#31859c"
+GREEN4 = "#4bacc5"
+GREEN5 = "#93cddd"
+ORANGE1 = "#f79747"
+ORANGE2 = "#fac090"
+
+theme_swd <- function() {
+  theme_minimal(base_size = 11, base_family = "Helvetica") +
+    theme(
+      panel.grid.major = element_line(size = 0.1, color = GRAY9),
+      panel.grid.minor = element_blank(),
+      axis.line = element_line(size = .13, color = GRAY8),
+      axis.text = element_text(color = GRAY7),
+      axis.ticks.x = element_line(size = 1, color = GRAY8),
+      axis.ticks.y = element_line(size = 1, color = GRAY8),
+      axis.title = element_text(color = GRAY3),
+      axis.title.y = element_text(hjust = 1, margin = margin(0, 6, 0, 15, "pt")),
+      axis.title.x = element_text(hjust = 0, margin = margin(6, 0, 15, 0, "pt")),
+      plot.subtitle = element_text(color = GRAY4, size= 11),
+      plot.title = element_text(color = GRAY4, size= 15),
+      plot.title.position = "plot", # This aligns the plot title to the very left edge
+      plot.caption = element_text(hjust = 0, color = GRAY6),
+      plot.caption.position = "plot",
+      plot.margin = margin(.5,.5,.5,.5,"cm"),
+      strip.text = element_text(color = GRAY7)) 
+}
+
+
+```
+
+```{r}
+# For analysis
+
+sql <- "
+SELECT AgreementGenId,
+       DefaultDate,
+       DefaultEndDate,
+       DefaultRankNum,
+       DefaultTypeCd,
+       ValutaKod,
+       LossAmount,
+       EAD,
+       CASE WHEN Valuation IS NULL THEN LossAmount
+                     ELSE LossAmount*Valuation END AS LossInSEK,
+       CASE WHEN Valuation IS NULL THEN EAD
+                     ELSE EAD*Valuation END AS EADInSEK
+FROM `huhl-course.SWEDBANK.defaults` AS def
+  LEFT JOIN `huhl-course.SWEDBANK.exchangerates` AS exch 
+  ON def.DefaultDate = exch.ReportDate AND LOWER(def.ValutaKod) = LOWER(exch.CurrencyCd)
+"
+
+defaults <- dbGetQuery(con, sql)
+```
+
+</div>
+
+
+
+
+## SOLUTIONS
+
+### 1. How many distinct defaults are in the dataset defaults?
+
+```{r first}
+sql <- "
+SELECT COUNT(DISTINCT AgreementGenId) 
+FROM `huhl-course.SWEDBANK.defaults`
+"
+dbGetQuery(con, sql)
+```
+
+### 2. Make a distribution graph of how many times agreements default.
+
+```{r pressure, message=FALSE, warning=FALSE}
+sql <- "
+SELECT COUNT(*) AS n 
+FROM `huhl-course.SWEDBANK.defaults` GROUP BY AgreementGenId
+"
+to_visualize <- dbGetQuery(con, sql)
+
+to_visualize %>% 
+  ggplot(aes(x=n, fill=ORANGE1)) +
+  geom_bar() +
+  theme_swd()+
+  scale_fill_identity() +
+  xlab("How many defaults one agreement had") +
+  ylab("Agreements count")
+```
+
+### 3.	Due to regulations, defaults that have less or equal to 9 months between the end date and new defaults start date must be merged into one with the first defaults start date and the latest end date. Perform this 9 month aggregation on default data with the following rules for other variables:
+-	The EAD and loss amount come from the first default.
+-	The DefaultTypeCd must be the riskiest one. The riskiest default is the one with the lowest ranking number.
+
+```{r}
+sql <- "
+WITH tbl1 AS (
+  SELECT AgreementGenId,
+         DefaultDate,
+         DefaultEndDate,
+         DefaultRankNum,
+         ValutaKod,
+         LossAmount,
+         EAD,
+         LAG(DefaultEndDate,1, '0001-01-01') OVER (ORDER BY AgreementGenId) AS lag_day
+  FROM huhl-course.SWEDBANK.defaults
+), tbl2 AS (
+  SELECT *, 
+         CASE WHEN DATE_DIFF(lag_day, DefaultDate, MONTH) < 9 THEN 1 ELSE -0 END AS gflag
+  FROM tbl1 
+),tbl3 AS (
+  SELECT *,
+         SUM(CASE WHEN gflag=0 THEN 1 ELSE 0 END) OVER(ORDER BY AgreementGenId) AS gid
+  FROM tbl2
+)
+SELECT MIN(tbl3.AgreementGenId) AS AgreementGenId,
+       MIN(DefaultDate) AS DefaultDate,
+       MAX(DefaultEndDate) AS DefaultEndDate,
+       MIN(tbl3.DefaultRankNum) AS DefaultRankNum,
+       ANY_VALUE(default_type.DefaultTypeCd) AS DefaultTypeCd,
+       ANY_VALUE(tbl3.ValutaKod) AS ValutaKod,
+       MIN(LossAmount) AS LossAmount,
+       MIN(EAD) AS EAD
+FROM tbl3 
+  LEFT JOIN `huhl-course.SWEDBANK.default_types` AS default_type
+  ON tbl3.DefaultRankNum = default_type.DefaultRankNum
+GROUP BY gid
+"
+
+defaults_compressed <- dbGetQuery(con, sql)
+```
+
+### 4.	What is the new number of unique defaults?
+
+```{r}
+sql <- "
+SELECT COUNT(DISTINCT AgreementGenId) 
+FROM `huhl-course.SWEDBANK.defaults_compressed`
+"
+
+dbGetQuery(con, sql)
+```
+
+### 5.	Analyse EAD-s and loss amounts. 
+
+#### Histograms {.tabset}
+
+##### Loss Amount in SEK
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  ggplot(aes(x=LossInSEK, y=after_stat(density), fill=ORANGE1)) + 
+  geom_histogram(position="identity", alpha=0.3) +
+  geom_density(color=ORANGE1,
+               lwd = 1.2,
+               linetype = 2,
+               alpha=0.3)+
+  theme_swd() +
+  scale_fill_identity() +
+  scale_color_identity() +
+  ylab("Density") +
+  xlab("All losses in SEK")
+```
+
+
+##### Loss Amount by currency
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  mutate(color = case_when(ValutaKod == "EUR" ~ ORANGE1,
+                           ValutaKod == "NOK" ~ RED1,
+                           ValutaKod == "SEK" ~ GREEN1,
+                           TRUE ~ GREEN2)) %>% 
+  ggplot(aes(x=LossAmount, y=after_stat(density), fill=color)) + 
+  geom_histogram(position="identity", alpha=0.3) +
+  facet_wrap(~ValutaKod, ncol=2)+
+  geom_density(aes(color= color ),
+               lwd = 1.2,
+               linetype = 2,
+               alpha=0.3)+
+  theme_swd() +
+  scale_fill_identity() +
+  scale_color_identity() +
+  ylab("Density") +
+  xlab("Loss")
+```
+
+##### EAD in SEK
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  ggplot(aes(x=EADInSEK, y=after_stat(density), fill=ORANGE1)) + 
+  geom_histogram(position="identity", alpha=0.5) +
+  geom_density(color=ORANGE1,
+               lwd = 1.2,
+               linetype = 2,
+               alpha=0.3) +
+  theme_swd() +
+  scale_fill_identity() +
+  scale_color_identity() +
+  ylab("Density") +
+  xlab("All EADs in SEK")
+```
+
+
+##### EAD by currency
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  mutate(color = case_when(ValutaKod == "EUR" ~ ORANGE1,
+                           ValutaKod == "NOK" ~ RED1,
+                           ValutaKod == "SEK" ~ GREEN1,
+                           TRUE ~ GREEN2)) %>% 
+  ggplot(aes(x=EAD, y=after_stat(density), fill=color)) + 
+  geom_histogram(position="identity", alpha=0.3) +
+  facet_wrap(~ValutaKod, ncol=2)+
+  geom_density(aes(color= color ),
+               lwd = 1.2,
+               linetype = 2,
+               alpha=0.3) + 
+  theme_swd() +
+  scale_fill_identity() +
+  scale_color_identity() +
+  ylab("Density")
+  
+```
+
+#### Loss and EAD in time {.tabset}
+
+##### Loss amount in SEK
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+data <- defaults %>% 
+  mutate(year = year(DefaultDate)) %>% 
+  group_by(year) %>% 
+  summarise(Mean = mean(LossInSEK),
+            Median = median(LossInSEK)) %>% 
+  gather("variable", "value", -year) %>% 
+  mutate(color = case_when(variable=="Mean" ~ ORANGE1,
+                           T ~ GREEN1))
+data %>% 
+  ggplot(aes(x=year, y=value, color=color)) +
+    geom_line()  +
+    scale_color_identity() + 
+    theme_swd() +
+  geom_text(aes(label = variable), 
+            color = GRAY6, 
+            hjust = 1, 
+            vjust = 0.5, 
+            nudge_x = -0.05,
+            data = ~ .x %>% filter(year == 2006)) +
+  xlim(c(2004.5,2020)) +
+  scale_y_continuous(name="Loss amount", labels = scales::label_number())
+    
+  
+```
+
+
+##### EAD in SEK
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+data <- defaults %>% 
+  mutate(year = year(DefaultDate)) %>% 
+  group_by(year) %>% 
+  summarise(Mean = mean(EADInSEK),
+            Median = median(EADInSEK)) %>% 
+  gather("variable", "value", -year) %>% 
+  mutate(color = case_when(variable=="Mean" ~ ORANGE1,
+                           T ~ GREEN1))
+data %>% 
+  ggplot(aes(x=year, y=value, color=color)) +
+    geom_line()  +
+    scale_color_identity() + 
+    theme_swd() +
+  geom_text(aes(label = variable), 
+            color = GRAY6, 
+            hjust = 1, 
+            vjust = 0.5, 
+            nudge_x = -0.05,
+            data = ~ .x %>% filter(year == 2006)) +
+  xlim(c(2004.5,2020))+
+  scale_y_continuous(name="EAD", labels = scales::label_number())
+    
+  
+```
+
+
+##### {-}
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+boxes <- data.frame(
+    x = seq(2, 15, 9.5),
+    y = rep(6.5, 2),
+    h = rep(5, 2),
+    w = rep(9, 2),
+    color = c(ORANGE1, GREEN2))
+```
+
+
+#### Means and medians for all time  {.tabset}
+
+##### All in SEK
+
+:::: {style="display: flex;"}
+
+::: {}
+
+<div align="center"> LOSS </div>
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  summarise(Mean = round(mean(LossInSEK), -2),
+            Median = round(median(LossInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::: {}
+
+<div align="center"> EAD </div>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  summarise(Mean = round(mean(EADInSEK), -2),
+            Median = round(median(EADInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::::
+
+##### SEK
+
+:::: {style="display: flex;"}
+
+::: {}
+
+<div align="center"> LOSS </div>
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "SEK") %>% 
+  summarise(Mean = round(mean(LossInSEK), -2),
+            Median = round(median(LossInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::: {}
+
+<div align="center"> EAD </div>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "SEK") %>% 
+  summarise(Mean = round(mean(EADInSEK), -2),
+            Median = round(median(EADInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::::
+
+##### EUR
+
+:::: {style="display: flex;"}
+
+::: {}
+
+<div align="center"> LOSS </div>
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "EUR") %>% 
+  summarise(Mean = round(mean(LossInSEK), -2),
+            Median = round(median(LossInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::: {}
+
+<div align="center"> EAD </div>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "EUR") %>% 
+  summarise(Mean = round(mean(EADInSEK), -2),
+            Median = round(median(EADInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::::
+
+
+##### NOK
+
+:::: {style="display: flex;"}
+
+::: {}
+
+<div align="center"> LOSS </div>
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "NOK") %>% 
+  summarise(Mean = round(mean(LossInSEK), -2),
+            Median = round(median(LossInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::: {}
+
+<div align="center"> EAD </div>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "NOK") %>% 
+  summarise(Mean = round(mean(EADInSEK), -2),
+            Median = round(median(EADInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::::
+
+##### USD
+
+:::: {style="display: flex;"}
+
+::: {}
+
+<div align="center"> LOSS </div>
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "USD") %>% 
+  summarise(Mean = round(mean(LossInSEK), -2),
+            Median = round(median(LossInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::: {}
+
+<div align="center"> EAD </div>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  filter(ValutaKod == "USD") %>% 
+  summarise(Mean = round(mean(EADInSEK), -2),
+            Median = round(median(EADInSEK), -2)) %>% 
+  gather() %>% 
+  cbind(boxes) %>% 
+  ggplot(aes(x, y, height = h, width = w, label = key)) +
+  ## Create the tiles using the `color` column
+  geom_tile(aes(fill = color)) +
+    ## Add the numeric values as text in `value` column
+  geom_text(color = "white", fontface = "bold", size = 15,
+            aes(label = value, x = x - 2.9, y = y + 1), hjust = 0) +
+    ## Add the labels for each box stored in the `info` column
+  geom_text(color = "white", fontface = "bold", size=8,
+            aes(label = key, x = x - 2.9, y = y - 1), hjust = 0) +
+  coord_fixed() +
+  theme_void() +
+  guides(fill = FALSE)+
+  scale_fill_identity()
+```
+:::
+
+::::
+
+##### {-}
+
+#### Loss and EAD by default type {.tabset}
+
+##### Loss Amount
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+cols = c("MEAN" = "white",
+         "MEDIAN" = GRAY9)
+data <- data.frame(x = c("RFF99",
+                         "RFF99"),
+                   y = c(200,
+                         500),
+                   label = c("Median",
+                             "Mean"),
+                   color = c(GRAY9,"white"
+                             ))
+
+defaults %>% 
+  ggplot(aes(x=DefaultTypeCd, y=LossInSEK, fill = ORANGE1, color=ORANGE1) ) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_identity()+
+  scale_color_identity() +
+  stat_summary(geom = "crossbar", 
+               width=0.65, fatten=0, color=GRAY9, fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) }) +
+  stat_summary(geom = "crossbar", width=0.65, fatten=0, color="white", fun.data = function(x){ return(c(y=mean(x), ymin=mean(x), ymax=mean(x))) }) +
+  theme_swd() +
+  scale_y_continuous(name="Loss (SEK)", 
+                     trans = "log10",
+                     limits = c(80,50000), 
+                     labels = scales::label_number()) +
+  geom_point(aes(x=x, 
+                 y=y, 
+                 fill=color), 
+             data=data,
+             pch=21, 
+             size=5, 
+             color= GRAY8)+
+  annotate("text", x=5.4, y=500, label= "Mean", color= GRAY6)+
+  annotate("text", x=5.45, y=200, label= "Median", color= GRAY6)
+  
+```
+
+##### EAD
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+cols = c("MEAN" = "white",
+         "MEDIAN" = GRAY9)
+data <- data.frame(x = c(1,
+                         1),
+                   y = c(200,
+                         500),
+                   label = c("Median",
+                             "Mean"),
+                   color = c(GRAY9,"white"
+                             ))
+
+defaults %>% 
+  ggplot(aes(x=DefaultTypeCd, y=EADInSEK, fill = ORANGE1, color=ORANGE1) ) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_identity()+
+  scale_color_identity() +
+  stat_summary(geom = "crossbar", 
+               width=0.65, fatten=0, color=GRAY9, fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) }) +
+  stat_summary(geom = "crossbar", width=0.65, fatten=0, color="white", fun.data = function(x){ return(c(y=mean(x), ymin=mean(x), ymax=mean(x))) }) +
+  theme_swd() +
+  scale_y_continuous(name="EAD (SEK)", 
+                     trans = "log10",
+                     limits = c(80,100000), 
+                     labels = scales::label_number()) +
+  geom_point(aes(x=x, 
+                 y=y, 
+                 fill=color), 
+             data=data,
+             pch=21, 
+             size=5, 
+             color= GRAY8)+
+  annotate("text", x=1.4, y=500, label= "Mean", color= GRAY6)+
+  annotate("text", x=1.45, y=200, label= "Median", color= GRAY6)
+  
+```
+
+
+### 6.	Make a new binary variable that shows if the default is open now. How many defaults are closed and how many are open?
+
+```{r, message=FALSE, warning=FALSE}
+sql <- "
+WITH tbl1 AS (SELECT *,
+       CASE WHEN DefaultEndDate > CURRENT_DATE() THEN 0
+        ELSE 1 END AS closed 
+FROM `huhl-course.SWEDBANK.defaults`)
+SELECT any_value(closed) AS IsClosed,
+       COUNT(*) AS total
+FROM tbl1 GROUP BY closed
+"
+
+dbGetQuery(con, sql) 
+```
+
+
+
+### 7.	Add 1.6% of EAD to each loss amount. Find the sum of new loss amount and old. Also calculate the loss percentages on total level and on default type level with the new loss amount.
+
+```{r, message=FALSE, warning=FALSE}
+sql <- "
+WITH tbl1 AS (
+  SELECT
+    LossInSEK,
+    LossInSEK+0.016*EADInSEK AS NewLossInSEK,
+    EADInSEK,
+    DefaultTypeCd
+  FROM `huhl-course.SWEDBANK.defaultsWithSEK`
+)
+SELECT SUM(LossInSEK) AS SumLossInSEK,
+       SUM(NewLossInSEK) AS NewSumLossInSEK
+FROM tbl1
+"
+
+dbGetQuery(con, sql) 
+
+
+sql <- "
+WITH tbl1 AS (
+  SELECT
+    LossInSEK,
+    LossInSEK+0.016*EADInSEK AS NewLossInSEK,
+    EADInSEK,
+    DefaultTypeCd
+  FROM `huhl-course.SWEDBANK.defaultsWithSEK`
+)
+SELECT DefaultTypeCd,
+       SUM(NewLossInSEK)/SUM(EADInSEK) AS Percentage
+FROM tbl1 GROUP BY DefaultTypeCd
+UNION ALL
+SELECT 'ALL' AS DefaultTypeCd,
+       SUM(NewLossInSEK)/SUM(EADInSEK) AS Percentage
+FROM tbl1
+"
+
+dbGetQuery(con, sql) 
+```
+
+
+### 8.	Analyse the data and describe the relevant/important characteristics.
+
+
+#### Defaults types analysis {.tabset}
+
+##### Defaults count by type
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+defaults %>% 
+  group_by(DefaultTypeCd) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(x=reorder(DefaultTypeCd, -n), y = n, fill=ORANGE1))+
+  geom_bar(stat = "identity") +
+  theme_swd()+
+  scale_fill_identity() +
+  xlab("Default type") +
+  ylab("Defaults  count")
+```
+
+
+##### defaults count change in time by type
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+data <- defaults %>% 
+  mutate(year = year(DefaultDate)) %>% 
+  group_by(DefaultTypeCd,
+           year) %>% 
+  summarise(n = n())
+
+plot <- data %>% 
+  ggplot(aes(x=year, y=n, color=DefaultTypeCd)) +
+  geom_line() +
+  scale_color_manual(values=c(RED1,
+                              ORANGE1,
+                              ORANGE2,
+                              GREEN1,
+                              GREEN2,
+                              RED3,
+                              GREEN4)) +
+  theme_swd() +
+  xlab("Year") +
+  ylab("Defaults count") +
+  geom_line(aes(x=year, y=n), 
+            data = ~ .x %>% 
+              group_by(year) %>% 
+              summarise(n = mean(n, na.rm = T)),
+            color=GREEN4,
+            size=1.5, 
+            linetype = "dashed") +
+  geom_line(aes(x=year, y=n), 
+            data = ~ .x %>% 
+              group_by(year) %>% 
+              summarise(n = median(n, na.rm = T)),
+            color=GREEN3,
+            size=1.5, 
+            linetype = "dashed") +
+  annotate("text", x=2005, y=15, label= "Mean")+
+  annotate("text", x=2005, y=3, label= "Median")
+
+ggplotly(plot)
+```
+

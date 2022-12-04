@@ -1,0 +1,2 @@
+All solutions (including SQL-s) are avaible in the HTML file.
+For a "database" I used Google BigQuery.
